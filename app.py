@@ -1,20 +1,39 @@
+"""
+Streamlit web application for AI Medical Diagnostics System.
+
+Provides a user-friendly interface for analyzing medical reports
+using specialized AI agents.
+"""
+
 import streamlit as st
 import os
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import warnings
+from pathlib import Path
 
 # Suppress secrets file warning
 warnings.filterwarnings('ignore', message='.*secrets.*')
 
-# Add Utils directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'Utils'))
+# Add project root to path
+PROJECT_ROOT = Path(__file__).parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
     from Utils.Agents import Cardiologist, Psychologist, Pulmonologist, MultidisciplinaryTeam
-except ImportError:
-    from Agents import Cardiologist, Psychologist, Pulmonologist, MultidisciplinaryTeam
+    from Utils.constants import (
+        DEFAULT_HF_MODEL,
+        OPENAI_MODELS,
+        MIN_REPORT_LENGTH,
+        MIN_REPORT_LENGTH_WARNING,
+        MEDICAL_KEYWORDS,
+        MEDICAL_REPORTS_DIR
+    )
+    from config import Config
+except ImportError as e:
+    st.error(f"Import error: {e}. Please ensure all dependencies are installed.")
+    st.stop()
 
 # Page configuration
 st.set_page_config(
@@ -136,7 +155,7 @@ with st.sidebar:
         use_huggingface = True
         use_openai = False
         api_key_valid = True
-        hf_model = "meta-llama/Llama-3.2-3B-Instruct"  # Default to the only working model
+        hf_model = DEFAULT_HF_MODEL
         model_name = None
 
     else:
@@ -177,7 +196,7 @@ with st.sidebar:
                 st.warning("⚠️ Please enter your Hugging Face token")
                 api_key_valid = False
 
-            hf_model = "meta-llama/Llama-3.2-3B-Instruct"  # Only working model
+            hf_model = DEFAULT_HF_MODEL
 
             with st.expander("📖 How to Get Your HF Token (30 seconds)"):
                 st.markdown("""
@@ -215,7 +234,7 @@ with st.sidebar:
             # Model selection
             model_name = st.selectbox(
                 "Select Model",
-                ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo-preview"],
+                OPENAI_MODELS,
                 help="Select which OpenAI model to use. Try gpt-3.5-turbo first (cheapest and fastest)."
             )
 
@@ -293,18 +312,15 @@ with tab1:
         )
 
     # Basic validation for medical content
-    if medical_report and len(medical_report) < 100:
-        st.warning("⚠️ The report seems too short. Please provide a detailed medical report (at least 100 characters).")
+    if medical_report and len(medical_report) < MIN_REPORT_LENGTH:
+        st.warning(f"⚠️ The report seems too short. Please provide a detailed medical report (at least {MIN_REPORT_LENGTH} characters).")
 
     # Check for medical keywords
     if medical_report:
-        medical_keywords = ['patient', 'medical', 'diagnosis', 'symptoms', 'treatment', 'health',
-                            'hospital', 'doctor', 'condition', 'disease', 'exam', 'test', 'report',
-                            'clinical', 'history', 'age', 'complaint', 'vital']
         text_lower = medical_report.lower()
-        has_medical_content = any(keyword in text_lower for keyword in medical_keywords)
+        has_medical_content = any(keyword in text_lower for keyword in MEDICAL_KEYWORDS)
 
-        if not has_medical_content and len(medical_report) > 50:
+        if not has_medical_content and len(medical_report) > MIN_REPORT_LENGTH_WARNING:
             st.error(
                 "⚠️ This doesn't appear to be a medical report. Please provide a valid medical case report with patient information, symptoms, and clinical findings.")
             analyze_button = False  # Disable analysis
@@ -526,15 +542,16 @@ with tab3:
     st.info("You can load sample reports from the 'Medical Reports' folder to test the system.")
 
     # Check if Medical Reports folder exists
-    reports_dir = "Medical Reports"
-    if os.path.exists(reports_dir):
-        report_files = [f for f in os.listdir(reports_dir) if f.endswith('.txt')]
+    reports_dir = Path(MEDICAL_REPORTS_DIR)
+    if reports_dir.exists():
+        report_files = [f.name for f in reports_dir.glob("*.txt")]
 
         if report_files:
             selected_report = st.selectbox("Select a sample report:", report_files)
 
             if st.button("📂 Load Sample Report"):
-                with open(os.path.join(reports_dir, selected_report), 'r') as f:
+                report_path = reports_dir / selected_report
+                with open(report_path, 'r', encoding='utf-8') as f:
                     sample_content = f.read()
                 st.success(f"✅ Loaded: {selected_report}")
                 st.text_area("Report Content:", sample_content, height=300)
