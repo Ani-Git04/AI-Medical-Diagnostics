@@ -45,6 +45,7 @@ logs/
 results/
 *.txt
 !Medical Reports/*.txt
+!requirements.txt
 
 # OS
 .DS_Store
